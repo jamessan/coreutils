@@ -15,16 +15,40 @@ use std::iter::Peekable;
 use std::ops::RangeInclusive;
 
 #[inline]
-fn unescape_char(c: char) -> char {
-    match c {
-        'a' => 0x07u8 as char,
-        'b' => 0x08u8 as char,
-        'f' => 0x0cu8 as char,
-        'v' => 0x0bu8 as char,
-        'n' => '\n',
-        'r' => '\r',
-        't' => '\t',
-        _ => c,
+fn unescape_char(s: &str) -> (char, usize) {
+    // Longest escape sequence is an octal number of 3 digits
+    let mut chars = s.chars().take(3);
+    match chars.next().unwrap() {
+        'a' => (0x07u8 as char, 1),
+        'b' => (0x08u8 as char, 1),
+        'f' => (0x0cu8 as char, 1),
+        'v' => (0x0bu8 as char, 1),
+        'n' => ('\n', 1),
+        'r' => ('\r', 1),
+        't' => ('\t', 1),
+        '\\' => ('\\', 1),
+        n @ '0'..='7' => {
+            let mut ord = n.to_digit(8).unwrap();
+            let mut len = 1;
+            while let Some(c) = chars.next() {
+                // Octal numbers >= 256 (e.g., \410) only consume the first two digits, leaving the
+                // rest for later parsing (\410 -> \41 0)
+                match c {
+                    n @ '0'..='7' => {
+                        let next = ord * 8 + n.to_digit(8).unwrap();
+                        if next >= std::u8::MAX.into() {
+                            break;
+                        }
+                        ord = next;
+                        len += 1;
+                    }
+                    _ => break
+                }
+            }
+
+            (from_u32(ord).unwrap(), len)
+        },
+        c => (c, 1),
     }
 }
 
@@ -52,8 +76,8 @@ impl<'a> Iterator for Unescape<'a> {
             '\\' if self.string.len() > 1 => {
                 // yes---it's \ and it's not the last char in a string
                 // we know that \ is 1 byte long so we can index into the string safely
-                let c = self.string[1..].chars().next().unwrap();
-                (Some(unescape_char(c)), 1 + c.len_utf8())
+                let (c, len) = unescape_char(&self.string[1..]);
+                (Some(c), len + c.len_utf8())
             }
             c => (Some(c), c.len_utf8()), // not an escape char
         };

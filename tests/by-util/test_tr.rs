@@ -134,3 +134,39 @@ fn missing_required_second_arg_fails() {
     assert!(!result.success);
     assert!(result.stderr.contains("missing operand after"));
 }
+
+#[test]
+fn ascii_escapes() {
+    new_ucmd!()
+        .args(&["A12345678B", r"!\\\a\b\f\n\r\t\v?"])
+        .pipe_in("ZA12345678BZ")
+        .succeeds()
+        .stdout_is("Z!\\\x07\x08\x0c\n\r\t\x0b?Z");
+}
+
+#[test]
+fn octal_escapes() {
+    new_ucmd!()
+        .args(&["A123456B", r"!\0\01\002\34\056\101?"])
+        .pipe_in("ZA123456BZ")
+        .succeeds()
+        .stdout_is("Z!\x00\x01\x02\x1c.A?Z");
+}
+
+#[test]
+fn escaped_non_octal_digits() {
+    new_ucmd!()
+        .args(&["A12345B", r"!\8\18\118?"])
+        .pipe_in("ZA12345BZ")
+        .succeeds()
+        .stdout_is("Z!8\x018\t8?Z");
+}
+
+#[test]
+fn overflow_octal_range() {
+    new_ucmd!()
+        .args(&["A12B", r"!\407?"])
+        .pipe_in("ZA12BZ")
+        .succeeds()
+        .stdout_is("Z! 7?Z");
+}
